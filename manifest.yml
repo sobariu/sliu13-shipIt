@@ -5,13 +5,18 @@ modules:
       render: native
       resolver:
         function: resolver
-      title: WorkJournalCommand
+      title: WhatHaveIDone?
   function:
     - key: resolver
       handler: index.handler
 resources:
   - key: main
     path: src/frontend/index.jsx
+permissions:
+  scopes:
+    - read:confluence-space.summary
+    - read:confluence-content.all
+    - write:confluence-content
 app:
   runtime:
     name: nodejs24.x
