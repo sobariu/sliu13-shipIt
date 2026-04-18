@@ -9,6 +9,8 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+    - key: action-handler
+      handler: index.actionHandler
 resources:
   - key: main
     path: src/frontend/index.jsx
@@ -17,6 +19,13 @@ permissions:
     - read:confluence-space.summary
     - read:confluence-content.all
     - write:confluence-content
+    # Required for Confluence v2 API: read spaces and create pages
+    - read:space:confluence
+    - write:page:confluence
+    # Required for searching Confluence pages via CQL (rest/api/content/search)
+    - search:confluence
+    # Required for searching Jira issues via JQL (rest/api/3/search)
+    - read:jira-work
 app:
   runtime:
     name: nodejs24.x

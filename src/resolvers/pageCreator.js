@@ -1,0 +1,220 @@
+import { asUser, route } from '@forge/api';
+
+/**
+ * createJournalPageHandler
+ *
+ * Core business logic for creating a journal page pre-filled with
+ * the user's recent Confluence page edits and Jira issues this week.
+ *
+ * This is shared between:
+ *  - The macro resolver (called via invoke() from the frontend)
+ *  - The Rovo Agent action handler (called by the Rovo Agent in Studio)
+ *
+ * @param {object} options
+ * @param {string} options.ruleName  - Human-readable name, e.g. "Weekly Summary"
+ * @param {string} options.spaceKey  - Confluence space key, e.g. "TEAM"
+ * @returns {object} { success, message, pageUrl?, error? }
+ */
+export async function createJournalPageHandler({ ruleName, spaceKey }) {
+  // Format today's date for use in the page title, e.g. "2026-04-19"
+  const today = new Date().toISOString().split('T')[0];
+
+  // Calculate the start of the current week (Monday) in ISO format
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ...
+  const daysBackToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - daysBackToMonday);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekStartStr = weekStart.toISOString().split('T')[0];
+
+  // Build the page title — e.g. "Weekly Summary — 2026-04-19"
+  const pageTitle = `${ruleName} — ${today}`;
+
+  // ─── Step 1: Search Confluence for pages updated by current user this week ───
+  let confluencePages = [];
+  try {
+    const cqlQuery = `contributor = currentUser() AND lastModified >= "${weekStartStr}" AND type = page ORDER BY lastModified DESC`;
+    const confluenceSearchResp = await asUser().requestConfluence(
+      route`/wiki/rest/api/content/search?cql=${cqlQuery}&limit=10&expand=body.view,version,space`,
+      {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      }
+    );
+    if (confluenceSearchResp.ok) {
+      const data = await confluenceSearchResp.json();
+      confluencePages = (data.results || []).map((page) => {
+        // Strip CSS/HTML from body to get clean plain text excerpt
+        const rawHtml = page.body?.view?.value || '';
+        const plainText = rawHtml
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\[data-[^\]]+\][^{]*\{[^}]*\}/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const excerpt = plainText.length > 200
+          ? plainText.slice(0, 200) + '...'
+          : plainText || 'No content preview available';
+
+        const spaceName = page.space?.name || page.space?.key || '';
+        const lastModified = page.version?.when
+          ? new Date(page.version.when).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          : '';
+
+        return { title: page.title, excerpt, spaceName, lastModified };
+      });
+    }
+  } catch (err) {
+    console.warn('Confluence search failed:', err.message);
+  }
+
+  // ─── Step 2: Search Jira for issues the current user worked on this week ───
+  let jiraResolved = [];
+  let jiraInProgress = [];
+  try {
+    const jqlQuery = `assignee = currentUser() AND updated >= "${weekStartStr}" ORDER BY updated DESC`;
+    const jiraSearchResp = await asUser().requestJira(
+      route`/rest/api/3/search?jql=${jqlQuery}&maxResults=20&fields=summary,status,key`,
+      {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      }
+    );
+    if (jiraSearchResp.ok) {
+      const data = await jiraSearchResp.json();
+      (data.issues || []).forEach((issue) => {
+        const statusCategory = issue.fields.status.statusCategory.key;
+        const label = `${issue.key}: ${issue.fields.summary}`;
+        if (statusCategory === 'done') {
+          jiraResolved.push(label);
+        } else {
+          jiraInProgress.push(label);
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Jira search failed:', err.message);
+  }
+
+  // ─── Step 3: Build HTML for each section ───
+  const toListItems = (items, fallback) => {
+    if (items.length === 0) return `<li><p>${fallback}</p></li>`;
+    return items.map((item) => `<li><p>${item}</p></li>`).join('\n  ');
+  };
+
+  const confluencePagesHtml = confluencePages.length === 0
+    ? '<li><p>No Confluence pages updated this week</p></li>'
+    : confluencePages.map((page) => `
+  <li>
+    <p><strong>${page.title}</strong>${page.spaceName ? ` — ${page.spaceName}` : ''}${page.lastModified ? ` (${page.lastModified})` : ''}</p>
+    <p><em>${page.excerpt}</em></p>
+  </li>`).join('\n');
+
+  const jiraResolvedHtml = toListItems(jiraResolved, 'No Jira issues resolved this week');
+  const jiraInProgressHtml = toListItems(jiraInProgress, 'No Jira issues in progress this week');
+
+  // ─── Step 4: Build full page body ───
+  const pageBody = `
+<h1>Overview</h1>
+<p>This work journal captures the week of <strong>${weekStartStr}</strong> to <strong>${today}</strong>.
+It was auto-generated by the WhatHaveIDone app and pre-filled with your recent Confluence and Jira activity.</p>
+
+<h1>Work Completed</h1>
+<h2>Confluence Pages Updated</h2>
+<ul>
+  ${confluencePagesHtml}
+</ul>
+
+<h2>Jira Issues Resolved</h2>
+<ul>
+  ${jiraResolvedHtml}
+</ul>
+
+<h1>In Progress</h1>
+<ul>
+  ${jiraInProgressHtml}
+</ul>
+
+<h1>Blockers</h1>
+<ul>
+  <li><p>[Add any blockers or risks here]</p></li>
+</ul>
+
+<h1>Decisions Made</h1>
+<ul>
+  <li><p>[Add any key decisions made this week]</p></li>
+</ul>
+
+<h1>Next Steps</h1>
+<ul>
+  <li><p>[Add your top priorities for next week]</p></li>
+</ul>
+
+<hr />
+<h1>Weekly Reflection</h1>
+<ul>
+  <li><p>What meaningful outcomes were delivered this week?</p></li>
+  <li><p>Which tasks consumed the most time, and were they high value?</p></li>
+  <li><p>What blockers appeared repeatedly?</p></li>
+  <li><p>Which decisions should be shared with stakeholders?</p></li>
+  <li><p>What are the top priorities for next week?</p></li>
+</ul>
+`;
+
+  // ─── Step 5: Look up the spaceId and create the page via Confluence v2 API ───
+  try {
+    const spaceResponse = await asUser().requestConfluence(
+      route`/wiki/api/v2/spaces?keys=${spaceKey}`,
+      { method: 'GET', headers: { 'Accept': 'application/json' } }
+    );
+
+    if (!spaceResponse.ok) {
+      const errText = await spaceResponse.text();
+      return { success: false, error: `Could not find space "${spaceKey}": ${errText}` };
+    }
+
+    const spaceData = await spaceResponse.json();
+    if (!spaceData.results || spaceData.results.length === 0) {
+      return { success: false, error: `Space "${spaceKey}" not found. Please check the space key.` };
+    }
+
+    const spaceId = spaceData.results[0].id;
+
+    const response = await asUser().requestConfluence(
+      route`/wiki/api/v2/pages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          title: pageTitle,
+          spaceId: spaceId,
+          body: { representation: 'storage', value: pageBody },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Confluence page creation error:', response.status, errorText);
+      return { success: false, error: `Failed to create page (HTTP ${response.status}): ${errorText}` };
+    }
+
+    const createdPage = await response.json();
+    console.log('Page created successfully:', createdPage.id, createdPage.title);
+
+    return {
+      success: true,
+      pageId: createdPage.id,
+      pageTitle: createdPage.title,
+      pageUrl: `https://sliu13shipit.atlassian.net/wiki${createdPage._links.webui}`,
+      message: `✅ Page "${createdPage.title}" created in space "${spaceKey}". Open it to review and fill in the remaining sections.`,
+    };
+
+  } catch (err) {
+    console.error('Unexpected error creating page:', err);
+    return { success: false, error: `Unexpected error: ${err.message}` };
+  }
+}

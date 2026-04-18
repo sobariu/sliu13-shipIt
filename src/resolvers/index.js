@@ -1,5 +1,6 @@
 import Resolver from '@forge/resolver';
 import { asApp, route } from '@forge/api';
+import { createJournalPageHandler } from './pageCreator.js';
 
 const resolver = new Resolver();
 
@@ -135,6 +136,24 @@ resolver.define('createWeeklyJournalAutomation', async (req) => {
       error: `Unexpected error: ${err.message}`
     };
   }
+});
+
+/**
+ * createJournalPage
+ *
+ * Creates a new Confluence page pre-filled with real data by:
+ * 1. Searching Confluence for pages the current user updated this week
+ * 2. Searching Jira for issues the current user worked on this week
+ * 3. Building the journal template with that real data inserted
+ *
+ * @param {object} req.payload.ruleId   - The selected rule ID (e.g. 'weekly-summary')
+ * @param {object} req.payload.ruleName - Display name of the rule
+ * @param {object} req.payload.spaceKey - The Confluence space key to create the page in
+ */
+resolver.define('createJournalPage', async (req) => {
+  const { ruleName, spaceKey } = req.payload;
+  // Delegate to the shared handler used by both the macro and the Rovo Agent action
+  return createJournalPageHandler({ ruleName, spaceKey });
 });
 
 /**

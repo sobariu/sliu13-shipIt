@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { invoke } from '@forge/bridge';
 import ForgeReconciler, {
   Text,
   Button,
@@ -9,6 +10,9 @@ import ForgeReconciler, {
   Box,
   Strong,
   Lozenge,
+  Textfield,
+  Label,
+  Spinner,
 } from '@forge/react';
 
 /**
@@ -72,10 +76,7 @@ const RULES = [
  */
 const RuleCard = ({ rule, isSelected, onSelect }) => {
   return (
-    <Box
-      padding="space.200"
-      backgroundColor={isSelected ? 'color.background.selected' : 'color.background.neutral'}
-    >
+    <Box padding="space.200">
       <Stack space="space.100">
         {/* Rule header: icon + name + schedule badge */}
         <Inline space="space.100" alignBlock="center">
@@ -103,38 +104,94 @@ const RuleCard = ({ rule, isSelected, onSelect }) => {
  * App
  *
  * The main macro UI. Displays the 4 automation rules as selectable cards.
- * When the user selects one, it shows a confirmation message with the
- * selected rule's name and schedule.
+ * When the user clicks Confirm, it calls the resolver to create a Confluence
+ * page immediately using the template for the selected rule type.
  */
 const App = () => {
   // Tracks which rule ID the user has currently selected (null = none selected)
   const [selectedRuleId, setSelectedRuleId] = useState(null);
 
+  // The Confluence space key where the page will be created
+  const [spaceKey, setSpaceKey] = useState('');
+
+  // Whether the page creation API call is in progress
+  const [loading, setLoading] = useState(false);
+
+  // Result of the page creation attempt (success or error)
+  const [result, setResult] = useState(null);
+
   // Look up the full rule object for the selected ID
   const selectedRule = RULES.find((r) => r.id === selectedRuleId) || null;
+
+  // Note: space key is entered manually by the user.
+  // Auto-detection via getSpaceKey resolver can be added later if needed.
 
   /**
    * handleSelect
    *
    * Called when the user clicks "Select" on a rule card.
-   * If the user clicks the already-selected rule, deselect it (toggle).
-   *
-   * @param {string} ruleId - The ID of the rule that was clicked
+   * Toggles selection — clicking the already-selected rule deselects it.
+   * Also clears any previous result when a new rule is picked.
    */
   const handleSelect = (ruleId) => {
-    // Toggle: clicking the selected rule again deselects it
     setSelectedRuleId((prev) => (prev === ruleId ? null : ruleId));
+    // Clear previous result when changing selection
+    setResult(null);
+  };
+
+  /**
+   * handleConfirm
+   *
+   * Called when the user clicks "Confirm". Invokes the resolver to
+   * create a Confluence page immediately using the selected rule's template.
+   */
+  const handleConfirm = async () => {
+    if (!selectedRule) return;
+
+    if (!spaceKey.trim()) {
+      setResult({ success: false, error: 'Please enter a Confluence space key.' });
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      // Call the resolver which creates the Confluence page via REST API
+      const response = await invoke('createJournalPage', {
+        ruleId: selectedRule.id,
+        ruleName: selectedRule.name,
+        spaceKey: spaceKey.trim(),
+      });
+      setResult(response);
+    } catch (err) {
+      setResult({ success: false, error: `Failed to create page: ${err.message}` });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <Stack space="space.300">
       {/* Page title */}
-      <Heading as="h2">📋 Choose an Automation Rule</Heading>
+      <Heading as="h2">📋 What Have I Done?</Heading>
 
       <Text>
-        Select the automation rule that matches how often you want your
-        Confluence pages to be created automatically.
+        Select a journal type, enter your space key, and click Confirm to
+        create a new Confluence page instantly using your journal template.
       </Text>
+
+      {/* Space key input */}
+      <Stack space="space.050">
+        <Label labelFor="spaceKey">Confluence Space Key</Label>
+        <Textfield
+          id="spaceKey"
+          name="spaceKey"
+          placeholder="e.g. TEAM"
+          value={spaceKey}
+          onChange={(e) => setSpaceKey(e.target.value)}
+        />
+      </Stack>
 
       {/* Render one card per rule */}
       <Stack space="space.150">
@@ -148,16 +205,27 @@ const App = () => {
         ))}
       </Stack>
 
-      {/* Confirmation message shown when a rule is selected */}
+      {/* Confirm button — only shown when a rule is selected */}
       {selectedRule && (
+        <Inline space="space.100" alignBlock="center">
+          <Button
+            appearance="primary"
+            onClick={handleConfirm}
+            isDisabled={loading}
+          >
+            {loading ? 'Creating page...' : `✓ Confirm — Create ${selectedRule.name} Page`}
+          </Button>
+          {loading && <Spinner size="medium" />}
+        </Inline>
+      )}
+
+      {/* Result message after page creation attempt */}
+      {result && (
         <SectionMessage
-          appearance="confirmation"
-          title={`${selectedRule.icon} ${selectedRule.name} selected`}
+          appearance={result.success ? 'confirmation' : 'error'}
+          title={result.success ? 'Page Created!' : 'Error'}
         >
-          <Text>
-            You have selected the <Strong>{selectedRule.name}</Strong> rule.
-            This will create a Confluence page on a <Strong>{selectedRule.schedule}</Strong> schedule.
-          </Text>
+          <Text>{result.success ? result.message : result.error}</Text>
         </SectionMessage>
       )}
     </Stack>
