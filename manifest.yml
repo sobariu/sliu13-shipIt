@@ -1,0 +1,20 @@
+modules:
+  macro:
+    - key: workjournalcommand-hello-world-macro
+      resource: main
+      render: native
+      resolver:
+        function: resolver
+      title: WorkJournalCommand
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/0282fdb0-5e8f-4085-b553-247ff1dc0dcc
