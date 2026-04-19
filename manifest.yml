@@ -7,6 +7,7 @@ modules:
         function: resolver
       title: What Have I Done?
       description: Create a daily, weekly, monthly, or quarterly work journal page.
+      icon: https://raw.githubusercontent.com/sobariu/sliu13-shipIt/main/whathaveidonelogo.png
       config:
         resource: config
         render: native
