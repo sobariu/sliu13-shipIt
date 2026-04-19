@@ -131,7 +131,7 @@ const Config = () => {
    */
   const DUMMY_SPACES = [
     { label: 'Winnie Tan', value: 'winnietan' },
-    { label: 'JSM - Getting Started', value: 'JSMGS' },
+    { label: 'Jira - AI Foundations', value: 'JSMGS' },
     { label: 'ShipIt', value: 'SHIPIT' },
   ];
 
