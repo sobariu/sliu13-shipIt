@@ -151,4 +151,53 @@ resolver.define('getSpaceKey', async (req) => {
   return { spaceKey };
 });
 
+/**
+ * getSpaces
+ *
+ * Fetches the list of Confluence spaces available to the current user so the
+ * frontend can populate the space picker dropdown.
+ *
+ * We use asUser() so only spaces the logged-in user can access are returned —
+ * no need for additional permission checks.
+ *
+ * Returns an array of { label, value } objects ready for use in a UI Kit Select.
+ */
+resolver.define('getSpaces', async (req) => {
+  try {
+    // GET /wiki/api/v2/spaces returns a paginated list of spaces.
+    // We fetch up to 50 — enough for most single-customer sites.
+    const response = await asUser().requestConfluence(
+      route`/wiki/api/v2/spaces?limit=50&sort=name`,
+      {
+        headers: { 'Accept': 'application/json' }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to fetch spaces:', response.status, errorText);
+      return { success: false, spaces: [], error: `HTTP ${response.status}` };
+    }
+
+    const data = await response.json();
+
+    // Map the API response into { label, value } pairs for the Select component.
+    // label = human-readable space name shown in the dropdown
+    // value = space key used when creating pages / automation rules
+    const spaces = (data.results || []).map((space) => ({
+      label: space.name,
+      value: space.key,
+    }));
+
+    // Also get the current space from context so we can pre-select it
+    const currentSpaceKey = req.context.extension?.space?.key || null;
+
+    return { success: true, spaces, currentSpaceKey };
+
+  } catch (err) {
+    console.error('Unexpected error fetching spaces:', err);
+    return { success: false, spaces: [], error: err.message };
+  }
+});
+
 export const handler = resolver.getDefinitions();
