@@ -15,6 +15,7 @@ import ForgeReconciler, {
   Spinner,
   Select,
   Textfield,
+  RequiredAsterisk,
 } from '@forge/react';
 import { invoke, macroConfig } from '@forge/bridge';
 
@@ -51,7 +52,7 @@ const RULES = [
     schedule: 'Monthly',
     automationDescription: 'Page will be automatically created on the 1st of each month.',
     lozengeAppearance: 'moved',
-    icon: '📆',
+    icon: '🗓️',
   },
   {
     id: 'apex',
@@ -125,42 +126,34 @@ const Config = () => {
   const selectedRule = RULES.find((r) => r.id === selectedRuleId) || null;
 
   /**
-   * On mount, fetch the list of Confluence spaces from the backend resolver
-   * and pre-select the current space the macro is being inserted into.
+   * Dummy spaces for development — replace with the getSpaces resolver call
+   * once the backend is wired up.
    */
+  const DUMMY_SPACES = [
+    { label: 'Winnie Tan', value: 'winnietan' },
+    { label: 'JSM - Getting Started', value: 'JSMGS' },
+    { label: 'ShipIt', value: 'SHIPIT' },
+  ];
+
   useEffect(() => {
-    const fetchSpaces = async () => {
-      setSpacesLoading(true);
-      try {
-        const result = await invoke('getSpaces');
-        if (result.success) {
-          setSpaces(result.spaces);
-          // Pre-select the current space if one was returned in context
-          if (result.currentSpaceKey) {
-            const current = result.spaces.find((s) => s.value === result.currentSpaceKey);
-            if (current) setSelectedSpace(current);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load spaces:', err);
-      } finally {
-        setSpacesLoading(false);
-      }
-    };
-    fetchSpaces();
+    // Use dummy spaces directly instead of fetching from the API
+    setSpaces(DUMMY_SPACES);
+    setSpacesLoading(false);
   }, []);
 
   /**
-   * When a rule is selected, auto-populate the page title with a sensible default
-   * based on the rule name — the user can still edit it.
+   * When a rule is selected, auto-populate the page title with the rule name.
+   * This always updates so switching between rules keeps the title in sync.
+   * If the user has already typed a custom title, it gets replaced — they can
+   * edit it afterwards if they want something different.
    */
   const handleSelect = (ruleId) => {
     const rule = RULES.find((r) => r.id === ruleId);
-    setSelectedRuleId((prev) => (prev === ruleId ? null : ruleId));
-    // Auto-fill the title only if the user hasn't typed their own title yet
-    if (rule && !pageTitle) {
-      setPageTitle(rule.name);
-    }
+    // Toggle off if already selected, otherwise select the new rule
+    const newRuleId = selectedRuleId === ruleId ? null : ruleId;
+    setSelectedRuleId(newRuleId);
+    // Always sync the title to the selected rule name (or clear if deselected)
+    setPageTitle(newRuleId && rule ? rule.name : '');
     setStatus('idle');
     setFeedbackMessage('');
   };
@@ -265,7 +258,7 @@ const Config = () => {
         the current space. The user can change it via the dropdown.
       */}
       <Stack space="space.100">
-        <Label labelFor="space-select">Confluence Space</Label>
+        <Label labelFor="space-select">Confluence Space <RequiredAsterisk /></Label>
         {spacesLoading ? (
           <Inline space="space.100" alignBlock="center">
             <Spinner size="small" label="Loading spaces..." />
@@ -289,7 +282,7 @@ const Config = () => {
         with the rule name as a starting point.
       */}
       <Stack space="space.100">
-        <Label labelFor="page-title-input">Page Title</Label>
+        <Label labelFor="page-title-input">Page Title <RequiredAsterisk /></Label>
         <Textfield
           id="page-title-input"
           placeholder="e.g. My Weekly Journal"
@@ -299,17 +292,17 @@ const Config = () => {
       </Stack>
 
       {/* ── Automated Page toggle ── */}
-      <Box padding="space.200" backgroundColor="color.background.accent.yellow.subtle">
+      <Box padding="space.200" backgroundColor="color.background.discovery">
         <Stack space="space.100">
-          <Inline space="space.150" alignBlock="center">
+          <Inline space="space.150" alignBlock="center" spread="space-between">
+            <Label labelFor="automated-page-toggle">
+              <Strong>⚡ Make this an automated page</Strong>
+            </Label>
             <Toggle
               id="automated-page-toggle"
               isChecked={isAutomated}
               onChange={handleToggleAutomation}
             />
-            <Label labelFor="automated-page-toggle">
-              <Strong>⚡ Make this an automated page</Strong>
-            </Label>
           </Inline>
 
           {isAutomated ? (
@@ -332,17 +325,17 @@ const Config = () => {
 
       {/* ── Selection summary ── */}
       {selectedRule && status === 'idle' && (
-        <SectionMessage
-          appearance="confirmation"
-          title={`${selectedRule.icon} ${selectedRule.name} selected`}
-        >
-          <Text>
-            You have selected the <Strong>{selectedRule.name}</Strong> journal ({selectedRule.schedule}).
-            {isAutomated
-              ? ` Automation is ON — ${selectedRule.automationDescription}`
-              : ' Automation is OFF — a single page will be created now.'}
-          </Text>
-        </SectionMessage>
+        <Box padding="space.200" backgroundColor="color.background.success">
+          <Stack space="space.100">
+            <Text><Strong>{selectedRule.icon} {selectedRule.name} selected</Strong></Text>
+            <Text>
+              You have selected the {selectedRule.name} journal ({selectedRule.schedule}).
+              {isAutomated
+                ? ` Automation is ON — ${selectedRule.automationDescription}`
+                : ' Automation is OFF — a single page will be created now.'}
+            </Text>
+          </Stack>
+        </Box>
       )}
 
       {/* ── Error feedback ── */}
@@ -353,7 +346,7 @@ const Config = () => {
       )}
 
       {/* ── Confirm + Cancel buttons ── */}
-      <Inline space="space.100" alignBlock="center">
+      <Inline space="space.100" alignBlock="center" alignInline="end">
         {status === 'loading' && <Spinner size="small" label="Creating journal..." />}
         <ButtonGroup>
           <Button
