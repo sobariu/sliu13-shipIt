@@ -6,17 +6,24 @@ modules:
       resolver:
         function: resolver
       title: WhatHaveIDone?
+      description: Create a daily, weekly, monthly, or quarterly work journal page.
+      config:
+        resource: config
+        render: native
   function:
     - key: resolver
       handler: index.handler
 resources:
   - key: main
     path: src/frontend/index.jsx
+  - key: config
+    path: src/frontend/config.jsx
 permissions:
   scopes:
     - read:confluence-space.summary
     - read:confluence-content.all
     - write:confluence-content
+    - read:space:confluence
 app:
   runtime:
     name: nodejs24.x
