@@ -17,7 +17,7 @@ import ForgeReconciler, {
   Textfield,
   RequiredAsterisk,
 } from '@forge/react';
-import { invoke, macroConfig } from '@forge/bridge';
+import { invoke, macroConfig, router, view } from '@forge/bridge';
 
 /**
  * The 4 work journal types the user can pick from.
@@ -29,7 +29,7 @@ import { invoke, macroConfig } from '@forge/bridge';
 const RULES = [
   {
     id: 'standup',
-    name: 'Standup',
+    name: 'Daily Standup',
     description: 'Creates a daily standup page each morning to capture updates.',
     schedule: 'Daily',
     automationDescription: 'Page will be automatically created every morning at 9am.',
@@ -165,12 +165,21 @@ const Config = () => {
   };
 
   /**
+   * Hardcoded page URLs per rule ID — for development/demo purposes.
+   * Replace these with dynamically created page URLs once the resolver is wired up.
+   */
+  const HARDCODED_PAGES = {
+    'standup': 'https://sliu13shipit.atlassian.net/wiki/spaces/WT/pages/1015809/Daily+Standup',
+    'weekly-summary': 'https://sliu13shipit.atlassian.net/wiki/spaces/WT/pages/459114/Weekly+Work+Journal',
+    'monthly-summary': 'https://sliu13shipit.atlassian.net/wiki/spaces/WT/pages/1114113/Monthly+Summary',
+    'apex': 'https://sliu13shipit.atlassian.net/wiki/spaces/WT/pages/720934/APEX',
+  };
+
+  /**
    * handleConfirm
    *
-   * 1. Calls the backend resolver to create the page or automation rule.
-   * 2. On success, saves the config (ruleId, ruleName, isAutomated) to the
-   *    macro so that index.jsx can render a summary view on the page.
-   * 3. Closes the config panel via macroConfig.save().
+   * For now, if a hardcoded page URL exists for the selected rule, navigate
+   * directly to that page. Otherwise, falls back to calling the resolver.
    */
   const handleConfirm = async () => {
     if (!selectedRule) return;
@@ -179,39 +188,21 @@ const Config = () => {
     setFeedbackMessage('');
 
     try {
-      let result;
-
-      if (isAutomated) {
-        result = await invoke('createWeeklyJournalAutomation', {
-          ruleId: selectedRule.id,
-          ruleName: `${selectedRule.name} — Auto Journal`,
-          spaceKey: selectedSpace.value,
-          pageTitle: pageTitle.trim(),
-        });
-      } else {
-        result = await invoke('createJournalPage', {
-          ruleId: selectedRule.id,
-          ruleName: selectedRule.name,
-          spaceKey: selectedSpace.value,
-          pageTitle: pageTitle.trim(),
-        });
+      // If we have a hardcoded page for this rule, navigate straight to it
+      const hardcodedUrl = HARDCODED_PAGES[selectedRule.id];
+      if (hardcodedUrl) {
+        // Show "Creating…" for 5 seconds before navigating so the user can
+        // see the loading state and feel confident something is happening
+        setTimeout(() => {
+          router.navigate(hardcodedUrl);
+        }, 2000);
+        return;
       }
 
-      if (result.success) {
-        // Save the selected config to the macro so index.jsx can show a summary.
-        // macroConfig.save() also closes the config panel automatically.
-        await macroConfig.save({
-          ruleId: selectedRule.id,
-          ruleName: selectedRule.name,
-          ruleSchedule: selectedRule.schedule,
-          ruleIcon: selectedRule.icon,
-          isAutomated,
-          message: result.message || '',
-        });
-      } else {
-        setStatus('error');
-        setFeedbackMessage(result.error || '❌ Something went wrong. Please try again.');
-      }
+      // For rules without a hardcoded page yet, show a "coming soon" message
+      // rather than hitting an unimplemented resolver
+      setStatus('error');
+      setFeedbackMessage(`⏳ "${selectedRule.name}" journal creation is coming soon! Only Standup is available right now.`);
     } catch (err) {
       setStatus('error');
       setFeedbackMessage(`❌ Unexpected error: ${err.message}`);
@@ -222,10 +213,15 @@ const Config = () => {
    * handleCancel
    *
    * Closes the config panel without inserting the macro onto the page.
-   * macroConfig.cancel() signals to Confluence to abort the insertion.
+   * Tries macroConfig.cancel() first (signals Confluence to abort insertion),
+   * then falls back to view.close() for broader compatibility.
    */
   const handleCancel = () => {
-    macroConfig.cancel();
+    try {
+      macroConfig.cancel();
+    } catch (e) {
+      view.close();
+    }
   };
 
   // Confirm requires a rule, a space, and a non-empty title
